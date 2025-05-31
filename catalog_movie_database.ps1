@@ -20,6 +20,8 @@
     *) v 0.2 Added Check for Get-MediaInfo Module.
     *) v 0.5 Added Progress Bar and improved error handling.
     *) v 0.6 Sorting the Movie Files; Optimizing the csv Output; Reading the File Name correctly.
+    *) v 0.7 Further Sorting and Coloring in the Output Table; Added Resolution Detection and Encoding Date.
+    *) v 0.8 Smaller Corrections in the Output Table; Fixing for Title / Year / Edition Detection; Frame Rate Detection.
 
     .AUTHOR
     Magnus Witzik
@@ -78,41 +80,48 @@ function analyzing_movies
             $movie_media        = Get-MediaInfo -Path $movie_file_info.FullName -ErrorAction SilentlyContinue
             $bild_weite         = $movie_media.Width
             $bild_hoehe         = $movie_media.Height
-            $auflösung          = [STRING]$bild_weite+"x"+[STRING]$bild_hoehe
+            $auflösung          = " ("+[STRING]$bild_weite+"x"+[STRING]$bild_hoehe+")"
 
             # Write the Resolution into a more readable format (like PAL,HD 720, HD 1080, UHD 4K)
-            if ( $bild_weite -in 500..600 )
+            if ( ($bild_weite -in 500..600) -and ($bild_hoehe -in 300..450) )
             {
-                $auflösung      = "PAL"+$auflösung
+                $standard       = "PAL"
             }
-            elseif ( $bild_weite -in 700..800 )
+            elseif ( ($bild_weite -in 700..720) -and ($bild_hoehe -in 320..580) )
             {
-                $auflösung      = "HD 720"+$auflösung
+                $standard       = "DVD"
             }
-            elseif ( ($bild_weite -in 1320..1960) -and ($bild_hoehe -in 1000..1100) )
+            elseif ( ($bild_weite -in 960..1280) -and ($bild_hoehe -in 400..720) )
             {
-                $auflösung      = "HD 1080"+$auflösung
+                $standard       = "HD 720"
+            }
+            elseif ( ($bild_weite -in 1320..1960) -and ($bild_hoehe -in 790..1100) )
+            {
+                $standard       = "HD 1080"
+            }
+            elseif ( ($bild_weite -in 2500..4096) -and ($bild_hoehe -in 1600..2180) )
+            {
+                $standard       = "UHD 4K"
             }
             else { }
 
             # Convert the Encoding Date into a more readable format
-            $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Z]{3}","")
+            $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Za-z]","")
 
             if ( $movie_media )
             {
                 $movie_info = [PSCustomObject]@{
                     "Film Titel"        = ($movie_file_info.BaseName).Split('(')[0]
-                    "Film Edition"      = $edition
-                    "Jahr"              = ($movie_file_info.BaseName).Split('(')[1] -replace '[()]', '' -replace '[^\d]', ''
+                    "Film Edition"      = ($movie_file_info.BaseName).Split('{')[1] -Replace('}','') -Replace ('Edition-','')
+                    "Jahr"              = (($movie_file_info.BaseName).Split('(')[1]).Split('{')[0] -replace '[()]', ''
                     "Laufzeit"          = [TIMESPAN]::FromMilliseconds((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Duration"))
+                    "Standard"          = $standard
                     "Auflösung"         = $auflösung
+                    "Frame Rate"        = $movie_media.FrameRate
                     "Format"            = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Video -Parameter "Format"                  
                     "Film Erstellt"     = $date_created 
                     "Programm"          = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Application/String"
                     "Film Größe"        = human_readable -Bytes ($movie_file_info.Length)
-                    
-                    AudioCodec       = $movie_media.AudioCodec
-                    Resolution       = $movie_media.VideoResolution
                 }
 
                 $global:movie_table += $movie_info
@@ -125,6 +134,21 @@ function analyzing_movies
     }
 }
 
+function show_movie_report
+{
+    $global:movie_table | Format-Table -Property * -AutoSize | Out-String -Stream | ForEach-Object `
+    {
+        $studiostatecolor = `
+            if ($_ -match "HD 1080") {@{'ForegroundColor' = 'Blue'}}
+            elseif ($_ -match "UHD 4K") {@{'ForegroundColor' = 'Magenta'}}
+            elseif ($_ -match "DVD") {@{'ForegroundColor'='Yellow'}}
+            elseif ($_ -match "HD 720") {@{'ForegroundColor'='Red'}}
+            elseif ($_ -match "PAL|SD") { @{ 'ForegroundColor' = 'Red'} }
+            else {@{}}
+            Write-Host @studiostatecolor $_
+    }
+}
+
 check_variables
 analyzing_movies
-$global:movie_table | Format-Table -AutoSize
+show_movie_report
