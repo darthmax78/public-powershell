@@ -23,7 +23,9 @@
     *) v 0.7 Further Sorting and Coloring in the Output Table; Added Resolution Detection and Encoding Date.
     *) v 0.8 Smaller Corrections in the Output Table; Fixing for Title / Year / Edition Detection; Frame Rate Detection.
     *) v 0.9 Added Audio Channel Detection; Smaller Corrections in the Output Table; Added csv Export.
-    *) v 1.0 Added further Audio Analyis;
+    *) v 1.0 Added further Audio Analyis; Smaller Bugfixes in the Audio Channel Detection
+    *) v 1.0.1 Smaller fixes for Audio Channel Detection; Removing last Space from File Name.
+    *) v 1.1 Rework of the Audio Channel Output (Surround Detection); Code optimization with additional functions;
 
     .AUTHOR
     Magnus Witzik
@@ -34,8 +36,8 @@ function check_variables
 {
     Clear-Host
     Write-Host "Checking Variables..." -ForegroundColor Cyan
-    $global:movie_location          = "\\colonial-one.opti-net.at\Filme\Movies\"
-    $global:movie_csv_file          = "\\colonial-one.opti-net.at\Skripte\Auswertungen"
+    $global:movie_location          = "LOCATION_MOVIES"
+    $global:movie_csv_file          = "LOCATION_CSV_EXPORT"
     $global:date_scanning           = (Get-Date -Format "yyyy-MM-dd_HH-mm-ss")  
 
     # Checking if the Get-MediaInfo Module is installed
@@ -108,7 +110,7 @@ function analyzing_movies
             }
             else { }
 
-            # Defining the Movie Year and Edition Information out of the File Name
+            # Defining the Movie Year and Edition Information out of the File Name; also removing the last Space from the File Name
             if ( $movie_file_info.BaseName -match "edition" )
             {
                 $edition        = ($movie_file_info.BaseName).Split('{')[1] -Replace('}','') -Replace ('Edition-','')
@@ -117,81 +119,77 @@ function analyzing_movies
 
             if ( $movie_file_info.BaseName -match "(\d{4})" )
             {
-                $year           = (($movie_file_info.BaseName).Split('(')[1]).Split('{')[0] -replace '[()]', ''
+                $year               = (($movie_file_info.BaseName).Split('(')[1]).Split('{')[0] -replace '[()]', ''
             }
             else
             {
                 $year           = "Unbekannt"
             }
 
+            $title                  = ($movie_file_info.BaseName).Split('(')[0].Trim()
+            
             # Erfasst die Audio Auswertung
-            $audio_channels         = ($movie_media.AudioCodec.Split('/')).Count
-            if ( $audio_channels -eq 1 )
+            $audio_tracks           = ($movie_media.AudioCodec.Split('/')).Count
+
+            function audio_track_analysis
             {
-                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Format/String'
-                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Channel(s)/String'
-                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Language/String'
-                
-                # Renaming, if the Channel Language is in Short Form
-                if ( $audio_language -eq "de|ger" )
-                {
-                    $audio_language = "Deutsch"
-                }
-                elseif ( $audio_language -eq "en|eng" )
-                {
-                    $audio_language = "Englisch"
-                }
-                else { }
+                $audio_track        = 0
 
-                $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
-            }
-            elseif ( $audio_channels -gt 2 )
-            {
-                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Format/String'
-                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Channel(s)/String'
-                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Language/String'
-                
-                # Renaming, if the Channel Language is in Short Form
-                if ( $audio_language -eq "de|ger" )
+                do 
                 {
-                    $audio_language = "Deutsch"
-                }
-                elseif ( $audio_language -eq "en|eng" )
-                {
-                    $audio_language = "Englisch"
-                }
-                else { }
+                    $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index $audio_track -Parameter 'Format/String'
+                    $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index $audio_track -Parameter 'Channel(s)/String'
+                    # Transcribe the Audio Channels into a more readable format
+                    if ( $audio_channels -match "1 channel" )
+                    {
+                        $audio_channels = "Mono"
+                    }
+                    elseif ( $audio_channels -match "2 channels" )
+                    {
+                        $audio_channels = "Stereo"
+                    }
+                    elseif ( $audio_channels -match "6 channels" )
+                    {
+                        $audio_channels = "5.1 Surround"
+                    }
+                    elseif ( $audio_channels -match "8 channels" )
+                    {
+                        $audio_channels = "7.1 Surround"
+                    }
+                    else { }
 
-                $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+                    $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index $audio_track -Parameter 'Language/String'
 
-                # Analyzing the second Audio Channel, if it exists
-                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Format/String'
-                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Channel(s)/String'
-                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Language/String'
-                
-                # Renaming, if the Channel Language is in Short Form
-                if ( $audio_language -eq "de|ger" )
-                {
-                    $audio_language = "Deutsch"
-                }
-                elseif ( $audio_language -eq "en|eng" )
-                {
-                    $audio_language = "Englisch"
-                }
-                else { }
+                    # Renaming, if the Channel Language is in Short Form
+                    if ( $audio_language -match "de\Z|ger" )
+                    {
+                        $audio_language = "Deutsch"
+                    }
+                    elseif ( $audio_language -match "en\Z|eng" )
+                    {
+                        $audio_language = "Englisch"
+                    }
+                    else { }
 
-                $audio_channel_2    = $audio_language + " - " + $audio_channels + " - " + $audio_format
-            }
-            else 
-            {
-                $audio_channel_1    = "Unbekannt"
+                    # matching the correct Audio Channel Analysis 
+                    if ( $audio_track -eq 0)
+                    {
+                        $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+                    }
+                    elseif ( $audio_track -eq 1 )
+                    {
+                        $audio_channel_2    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+                    }
+                    else { }
+                }
+                until ( $counter -eq $audio_tracks )
             }
 
             # Convert the Encoding Date into a more readable format
             $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Za-z]","")
 
             $movie_info = [PSCustomObject]@{
-            "Film Titel"        = ($movie_file_info.BaseName).Split('(')[0]
+            "Film Titel"        = $title
             "Film Edition"      = $edition
             "Jahr"              = $year
             "Laufzeit"          = [TIMESPAN]::FromMilliseconds((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Duration"))
@@ -199,7 +197,7 @@ function analyzing_movies
             "Auflösung"         = $auflösung
             "Frame Rate"        = $movie_media.FrameRate
             "Format"            = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Video -Parameter "Format"                  
-            "Audio Spuren"      = $audio_channels
+            "Audio Spuren"      = $audio_tracks
             "Audio Spur 1"      = $audio_channel_1
             "Audio Spur 2"      = $audio_channel_2
             "Film Erstellt"     = $date_created 
