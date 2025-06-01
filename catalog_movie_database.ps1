@@ -34,8 +34,8 @@ function check_variables
 {
     Clear-Host
     Write-Host "Checking Variables..." -ForegroundColor Cyan
-    $global:movie_location          = "\\colonial-one.opti-net.at\Filme\Movies\"
-    $global:movie_csv_file          = "\\colonial-one.opti-net.at\Skripte\Auswertungen"
+    $global:movie_location          = "LOCATION_MOVIES"
+    $global:movie_csv_file          = "LOCATION_CSV_EXPORT"
     $global:date_scanning           = (Get-Date -Format "yyyy-MM-dd_HH-mm-ss")  
 
     # Checking if the Get-MediaInfo Module is installed
