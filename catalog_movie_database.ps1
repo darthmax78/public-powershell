@@ -22,6 +22,8 @@
     *) v 0.6 Sorting the Movie Files; Optimizing the csv Output; Reading the File Name correctly.
     *) v 0.7 Further Sorting and Coloring in the Output Table; Added Resolution Detection and Encoding Date.
     *) v 0.8 Smaller Corrections in the Output Table; Fixing for Title / Year / Edition Detection; Frame Rate Detection.
+    *) v 0.9 Added Audio Channel Detection; Smaller Corrections in the Output Table; Added csv Export.
+    *) v 1.0 Added further Audio Analyis;
 
     .AUTHOR
     Magnus Witzik
@@ -33,7 +35,8 @@ function check_variables
     Clear-Host
     Write-Host "Checking Variables..." -ForegroundColor Cyan
     $global:movie_location          = "\\colonial-one.opti-net.at\Filme\Movies\"
-    $global:movie_csv_file          = "\\colonial-one.opti-net.at\Skripte\Auswertungen\"
+    $global:movie_csv_file          = "\\colonial-one.opti-net.at\Skripte\Auswertungen"
+    $global:date_scanning           = (Get-Date -Format "yyyy-MM-dd_HH-mm-ss")  
 
     # Checking if the Get-MediaInfo Module is installed
     try
@@ -80,7 +83,7 @@ function analyzing_movies
             $movie_media        = Get-MediaInfo -Path $movie_file_info.FullName -ErrorAction SilentlyContinue
             $bild_weite         = $movie_media.Width
             $bild_hoehe         = $movie_media.Height
-            $auflösung          = " ("+[STRING]$bild_weite+"x"+[STRING]$bild_hoehe+")"
+            $auflösung          = [STRING]$bild_weite+"x"+[STRING]$bild_hoehe
 
             # Write the Resolution into a more readable format (like PAL,HD 720, HD 1080, UHD 4K)
             if ( ($bild_weite -in 500..600) -and ($bild_hoehe -in 300..450) )
@@ -105,31 +108,107 @@ function analyzing_movies
             }
             else { }
 
-            # Convert the Encoding Date into a more readable format
-            $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Za-z]","")
-
-            if ( $movie_media )
+            # Defining the Movie Year and Edition Information out of the File Name
+            if ( $movie_file_info.BaseName -match "edition" )
             {
-                $movie_info = [PSCustomObject]@{
-                    "Film Titel"        = ($movie_file_info.BaseName).Split('(')[0]
-                    "Film Edition"      = ($movie_file_info.BaseName).Split('{')[1] -Replace('}','') -Replace ('Edition-','')
-                    "Jahr"              = (($movie_file_info.BaseName).Split('(')[1]).Split('{')[0] -replace '[()]', ''
-                    "Laufzeit"          = [TIMESPAN]::FromMilliseconds((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Duration"))
-                    "Standard"          = $standard
-                    "Auflösung"         = $auflösung
-                    "Frame Rate"        = $movie_media.FrameRate
-                    "Format"            = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Video -Parameter "Format"                  
-                    "Film Erstellt"     = $date_created 
-                    "Programm"          = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Application/String"
-                    "Film Größe"        = human_readable -Bytes ($movie_file_info.Length)
-                }
+                $edition        = ($movie_file_info.BaseName).Split('{')[1] -Replace('}','') -Replace ('Edition-','')
+            }
+            else { }
 
-                $global:movie_table += $movie_info
+            if ( $movie_file_info.BaseName -match "(\d{4})" )
+            {
+                $year           = (($movie_file_info.BaseName).Split('(')[1]).Split('{')[0] -replace '[()]', ''
             }
             else
             {
-                Write-Host "Could not analyze movie: $($_.Name)" -ForegroundColor Red
+                $year           = "Unbekannt"
             }
+
+            # Erfasst die Audio Auswertung
+            $audio_channels         = ($movie_media.AudioCodec.Split('/')).Count
+            if ( $audio_channels -eq 1 )
+            {
+                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Format/String'
+                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Channel(s)/String'
+                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Language/String'
+                
+                # Renaming, if the Channel Language is in Short Form
+                if ( $audio_language -eq "de|ger" )
+                {
+                    $audio_language = "Deutsch"
+                }
+                elseif ( $audio_language -eq "en|eng" )
+                {
+                    $audio_language = "Englisch"
+                }
+                else { }
+
+                $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+            }
+            elseif ( $audio_channels -gt 2 )
+            {
+                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Format/String'
+                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Channel(s)/String'
+                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 2 -Parameter 'Language/String'
+                
+                # Renaming, if the Channel Language is in Short Form
+                if ( $audio_language -eq "de|ger" )
+                {
+                    $audio_language = "Deutsch"
+                }
+                elseif ( $audio_language -eq "en|eng" )
+                {
+                    $audio_language = "Englisch"
+                }
+                else { }
+
+                $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+
+                # Analyzing the second Audio Channel, if it exists
+                $audio_format       = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Format/String'
+                $audio_channels     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Channel(s)/String'
+                $audio_language     = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Audio -Index 3 -Parameter 'Language/String'
+                
+                # Renaming, if the Channel Language is in Short Form
+                if ( $audio_language -eq "de|ger" )
+                {
+                    $audio_language = "Deutsch"
+                }
+                elseif ( $audio_language -eq "en|eng" )
+                {
+                    $audio_language = "Englisch"
+                }
+                else { }
+
+                $audio_channel_2    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+            }
+            else 
+            {
+                $audio_channel_1    = "Unbekannt"
+            }
+
+            # Convert the Encoding Date into a more readable format
+            $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Za-z]","")
+
+            $movie_info = [PSCustomObject]@{
+            "Film Titel"        = ($movie_file_info.BaseName).Split('(')[0]
+            "Film Edition"      = $edition
+            "Jahr"              = $year
+            "Laufzeit"          = [TIMESPAN]::FromMilliseconds((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Duration"))
+            "Standard"          = $standard
+            "Auflösung"         = $auflösung
+            "Frame Rate"        = $movie_media.FrameRate
+            "Format"            = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Video -Parameter "Format"                  
+            "Audio Spuren"      = $audio_channels
+            "Audio Spur 1"      = $audio_channel_1
+            "Audio Spur 2"      = $audio_channel_2
+            "Film Erstellt"     = $date_created 
+            "Programm"          = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Application/String"
+            "Film Größe"        = human_readable -Bytes ($movie_file_info.Length)
+            }
+
+            $global:movie_table += $movie_info
+            $movie_info | Export-Csv -Path "$global:movie_csv_file\Movie-Report_$global:date_scanning.csv" -Append -NoTypeInformation -Encoding utf8BOM -Delimiter ";"
         }
     }
 }
