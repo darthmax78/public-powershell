@@ -25,7 +25,7 @@
     *) v 0.9 Added Audio Channel Detection; Smaller Corrections in the Output Table; Added csv Export.
     *) v 1.0 Added further Audio Analyis; Smaller Bugfixes in the Audio Channel Detection
     *) v 1.0.1 Smaller fixes for Audio Channel Detection; Removing last Space from File Name.
-    *) v 1.1 Rework of the Audio Channel Output (Surround Detection); Code optimization with additional functions;
+    *) v 1.1 Rework of the Audio Channel Output (Surround Detection); Code optimization with additional functions; Smaller fix for Resolution Detection;
 
     .AUTHOR
     Magnus Witzik
@@ -92,6 +92,10 @@ function analyzing_movies
             {
                 $standard       = "PAL"
             }
+            elseif ( ($bild_weite -in 640..720) -and ($bild_hoehe -le 320) )
+            {
+                $standard       = "SD"
+            }
             elseif ( ($bild_weite -in 700..720) -and ($bild_hoehe -in 320..580) )
             {
                 $standard       = "DVD"
@@ -130,7 +134,6 @@ function analyzing_movies
             
             # Erfasst die Audio Auswertung
             $audio_tracks           = ($movie_media.AudioCodec.Split('/')).Count
-
             function audio_track_analysis
             {
                 $audio_track        = 0
@@ -174,19 +177,27 @@ function analyzing_movies
                     # matching the correct Audio Channel Analysis 
                     if ( $audio_track -eq 0)
                     {
-                        $audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+                        $global:audio_channel_1    = $audio_language + " - " + $audio_channels + " - " + $audio_format
                     }
                     elseif ( $audio_track -eq 1 )
                     {
-                        $audio_channel_2    = $audio_language + " - " + $audio_channels + " - " + $audio_format
+                        $global:audio_channel_2    = $audio_language + " - " + $audio_channels + " - " + $audio_format
                     }
                     else { }
+                    $audio_track++
                 }
-                until ( $counter -eq $audio_tracks )
+                until ( $audio_track -eq $audio_tracks )
             }
+
+            audio_track_analysis
 
             # Convert the Encoding Date into a more readable format
             $date_created       = ((Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Date").Split("/")[0]) -replace ("[A-Za-z]","")
+            if ( $date_created -match "\A " )
+            {
+                $date_created   = $date_created.Substring(1)
+            }
+            else { }
 
             $movie_info = [PSCustomObject]@{
             "Film Titel"        = $title
@@ -198,8 +209,8 @@ function analyzing_movies
             "Frame Rate"        = $movie_media.FrameRate
             "Format"            = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind Video -Parameter "Format"                  
             "Audio Spuren"      = $audio_tracks
-            "Audio Spur 1"      = $audio_channel_1
-            "Audio Spur 2"      = $audio_channel_2
+            "Audio Spur 1"      = $global:audio_channel_1
+            "Audio Spur 2"      = $global:audio_channel_2
             "Film Erstellt"     = $date_created 
             "Programm"          = Get-MediaInfoValue -Path $movie_file_info.FullName -Kind General -Parameter "Encoded_Application/String"
             "Film Größe"        = human_readable -Bytes ($movie_file_info.Length)
