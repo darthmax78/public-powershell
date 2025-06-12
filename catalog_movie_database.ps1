@@ -16,16 +16,29 @@
     - Get-MediaInfo
     
     .NOTES
-    *) v 0.1 Initial Version. Basic Function - First functions.
-    *) v 0.2 Added Check for Get-MediaInfo Module.
-    *) v 0.5 Added Progress Bar and improved error handling.
-    *) v 0.6 Sorting the Movie Files; Optimizing the csv Output; Reading the File Name correctly.
-    *) v 0.7 Further Sorting and Coloring in the Output Table; Added Resolution Detection and Encoding Date.
-    *) v 0.8 Smaller Corrections in the Output Table; Fixing for Title / Year / Edition Detection; Frame Rate Detection.
-    *) v 0.9 Added Audio Channel Detection; Smaller Corrections in the Output Table; Added csv Export.
-    *) v 1.0 Added further Audio Analyis; Smaller Bugfixes in the Audio Channel Detection
-    *) v 1.0.1 Smaller fixes for Audio Channel Detection; Removing last Space from File Name.
-    *) v 1.1 Rework of the Audio Channel Output (Surround Detection); Code optimization with additional functions; Smaller fix for Resolution Detection;
+    Version:    0.1: Initial Version. Basic Function - First functions
+                0.2: Added Check for Get-MediaInfo Module
+                0.5: Added Progress Bar and improved error handling
+                0.6: Sorting the Movie Files
+                        - Optimizing the csv Output
+                        - Reading the File Name correctly
+                0.7: Further Sorting and Coloring in the Output Table   
+                        - Added Resolution Detection and Encoding Date
+                0.8: Smaller Corrections in the Output Table
+                        - Fixing for Title / Year / Edition Detection
+                        - Frame Rate Detection
+                0.9: Added Audio Channel Detection
+                        - Smaller Corrections in the Output Table
+                        - Added csv Export
+                1.0: Added further Audio Analyis
+                        - Smaller Bugfixes in the Audio Channel Detection
+                1.0.1: Smaller fixes for Audio Channel Detection
+                        - Removing last Space from File Name
+                1.1: Rework of the Audio Channel Output (Surround Detection)
+                        - Code optimization with additional functions
+                        - Smaller fix for Resolution Detection
+                1.2
+
 
     .AUTHOR
     Magnus Witzik
@@ -92,7 +105,7 @@ function analyzing_movies
             {
                 $standard       = "PAL"
             }
-            elseif ( ($bild_weite -in 640..720) -and ($bild_hoehe -le 320) )
+            elseif ( ($bild_weite -in 640..900) -and ($bild_hoehe -le 390) )
             {
                 $standard       = "SD"
             }
@@ -104,7 +117,7 @@ function analyzing_movies
             {
                 $standard       = "HD 720"
             }
-            elseif ( ($bild_weite -in 1320..1960) -and ($bild_hoehe -in 790..1100) )
+            elseif ( ($bild_weite -in 1320..1960) -and ($bild_hoehe -in 780..1100) )
             {
                 $standard       = "HD 1080"
             }
@@ -112,7 +125,10 @@ function analyzing_movies
             {
                 $standard       = "UHD 4K"
             }
-            else { }
+            else
+            {
+                $standard       = "Unbekannt"
+            }
 
             # Defining the Movie Year and Edition Information out of the File Name; also removing the last Space from the File Name
             if ( $movie_file_info.BaseName -match "edition" )
@@ -218,6 +234,9 @@ function analyzing_movies
 
             $global:movie_table += $movie_info
             $movie_info | Export-Csv -Path "$global:movie_csv_file\Movie-Report_$global:date_scanning.csv" -Append -NoTypeInformation -Encoding utf8BOM -Delimiter ";"
+
+            Clear-Variable -Name bild_weite, bild_hoehe, auflösung, standard, year, title, edition, date_created- ErrorAction SilentlyContinue
+            Clear-Variable -Name audio_channel_1, audio_channel_2 -Scope Global -ErrorAction SilentlyContinue
         }
     }
 }
@@ -231,7 +250,7 @@ function show_movie_report
             elseif ($_ -match "UHD 4K") {@{'ForegroundColor' = 'Magenta'}}
             elseif ($_ -match "DVD") {@{'ForegroundColor'='Yellow'}}
             elseif ($_ -match "HD 720") {@{'ForegroundColor'='Red'}}
-            elseif ($_ -match "PAL|SD") { @{ 'ForegroundColor' = 'Red'} }
+            elseif ($_ -match "PAL|SD|Unbekannt") { @{ 'ForegroundColor' = 'Red'} }
             else {@{}}
             Write-Host @studiostatecolor $_
     }
