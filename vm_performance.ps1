@@ -16,9 +16,17 @@
     v. 0.3  Erste Schritte für die VM Auswertung werden implementiert
             Alle Metadaten der VMs werden gesammelt
             CPU und RAM Performance wird gesammelt
-            RAM Performance finished - CPU Performance muss noch angepasst werden
+            RAM Performance finished
             Disk Latenz eingepflegt
             Datastore IOPS sind eingepflegt
+            CPU Werte sind eingepflegt
+    
+    v. 0.4  Test ob die Auswertung mittels Abfrage Optimierung beschleunigt werden kann
+            Korrektur der Abfrage aufgrund der Sammlung im Bucket
+            Laufzeit Auswertung hinzugefügt
+            Zeitstempel und globale Variable für den Export des Reports hinzugefügt
+            Create Date der VM hinzugefügt
+            Disk Durchsatz hinzugefügt
 
 .AUTHOR
     Magnus Witzik
@@ -33,8 +41,12 @@ Clear-Host
 
 function get_variable
 {
+    # Variable für den Export des Reports
+    $global:path_export     = "W:\Reports\VM_Performance"
+    $global:date_export     = Get-Date -Format "yyyy-MM-dd_HH-mm"
+
+    # Do not change anything below this line
     $global:all_vms         = Get-VM | Where-Object { ($_.PowerState -match "PoweredOn") -and ($_.Name -notmatch "\AvCLS|_backup")} | Sort-Object Name
-    # $all_vms | FT -AutoSize -Property Name, @{Name="Guest OS"; E={ $_.Guest.OSFullName}}, CreateDate, PowerState, NumCPU, MemoryGB, ProvisionedSpaceGB, UsedSpaceGB
     $global:all_clusters    = Get-Cluster | Where-Object { $_.ParentFolder -notmatch "Gen8" } | Sort-Object Name
     $global:all_clusters | ForEach-Object `
     {
@@ -100,11 +112,13 @@ function get_vm_data
         $percent            = (($counter) / $global:all_vms.Count * 100)
         $start_time         = Get-Date
         Write-Progress -Activity "Daten aller VMs werden gesammelt" -Status "VM: $($_.Name) $percent%" -PercentComplete $percent -SecondsRemaining $estimated_total
-        $vm_entry           = "" | Select-Object Name, "Guest OS", Cluster, Host, PowerState, NumCPU, MemoryGB, ProvisionedSpaceGB, UsedSpaceGB, "CPU Ready (ms)", "CPU Wait (%)", "CPU Co-Stop (%)", "Cluster CPU Overbookin", "RAM Consumed (GB)", "RAM Active (GB)", "RAM Ballooned (GB)", "RAM Swapped (GB)", "Disk Write Latency (ms)", "Disk Read Latency (ms)", "Datastore Read IOPS", "Datastore Write IOPS", "Datastore Throughput (MB/s)"
+        $vm_entry           = "" | Select-Object Name, "Guest OS", "Created", Cluster, Host, PowerState, NumCPU, MemoryGB, ProvisionedSpaceGB, UsedSpaceGB, "CPU Ready (%)", "CPU Co-Stop (ms)", "Cluster CPU Overbookin", "RAM Consumed (GB)", "RAM Active (GB)", "RAM Ballooned (GB)", "RAM Swapped (GB)", "Cluster RAM Overbookin", "Disk Write Latency (ms)", "Disk Read Latency (ms)", "Disk Read IOPS", "Disk Write IOPS", "Disk Read Throughput (MB/s)", "Disk Write Throughput (MB/s)"
         $vm_host            = $_.VMHost
+        $vm_stats           = $_ | Get-Stat -Stat cpu.ready.summation, cpu.costop.summation, mem.consumed.average, mem.active.average, mem.vmmemctl.average, mem.swapped.average, virtualDisk.totalWriteLatency.average, virtualDisk.totalReadLatency.average, virtualDisk.numberReadAveraged.average, virtualDisk.numberWriteAveraged.average, virtualDisk.read.average, virtualDisk.write.average -Realtime
 
         $vm_entry.Name                  = $_.Name
         $vm_entry."Guest OS"            = $_.Guest.OSFullName
+        $vm_entry."Created"             = $_.CreateDate
         $vm_entry.Cluster               = $vm_host.Parent
         $vm_entry.Host                  = $vm_host
         $vm_entry.PowerState            = $_.PowerState
@@ -113,19 +127,21 @@ function get_vm_data
         $vm_entry.ProvisionedSpaceGB    = [MATH]::ROUND($_.ProvisionedSpaceGB,2)
         $vm_entry.UsedSpaceGB           = [MATH]::ROUND($_.UsedSpaceGB,2)
 
-        # $vm_entry."CPU Ready (ms)"      = [INT64](New-Timespan -Milliseconds (Get-Stat -Entity (Get-VM $_) -Stat cpu.ready.summation -Realtime | Where-Object { $_.Instance -like '' } | Measure-Object -Property Value -Average).Average).TotalMilliseconds
-        $vm_entry."CPU Ready (ms)"              = [INT64](Get-Stat -Entity (Get-VM $_) -Stat cpu.ready.summation -Realtime | Where-Object { $_.Instance -like '' } | Measure-Object -Property Value -Sum).Sum
-        $vm_entry."CPU Wait (%)"                = [INT64](Get-Stat -Entity (Get-VM $_) -Stat cpu.wait.summation -Realtime | Where-Object { $_.Instance -like '' } | Measure-Object -Property Value -Sum).Sum
-        $vm_entry."CPU Co-Stop (%)"             = [INT64](Get-Stat -Entity (Get-VM $_) -Stat cpu.costop.summation -Realtime | Where-Object { $_.Instance -like '' } | Measure-Object -Property Value -Sum).Sum
+        $vm_entry."CPU Ready (%)"               = [INT64]($vm_stats | Where-Object { ($_.MetricId -like 'cpu.ready.summation') -and ($_.Instance -like '') } | Measure-Object -Property Value -Sum).Sum
+        $vm_entry."CPU Ready (%)"               = ($vm_entry."CPU Ready (%)"/$vm_entry.NumCPU/(20*1000))*100
+        $vm_entry."CPU Co-Stop (ms)"            = [INT]($vm_stats | Where-Object { ($_.MetricId -like 'cpu.costop.summation') -and ($_.Instance -like '') } | Measure-Object -Property Value -Sum).Sum
         $vm_entry."Cluster CPU Overbookin"      = $global:report_cluster | Where-Object { $_.Cluster -match $vm_entry.Cluster } | Select-Object -ExpandProperty "CPU Overcommit"
-        $vm_entry."RAM Consumed (GB)"           = [MATH]::ROUND((($_ | Get-Stat -Stat mem.consumed.average -Realtime | Measure-Object -Property Value -Average).Average/1024)/1024,2)
-        $vm_entry."RAM Active (GB)"             = [MATH]::ROUND((($_ | Get-Stat -Stat mem.active.average -Realtime | Measure-Object -Property Value -Average).Average/1024)/1024,2)
-        $vm_entry."RAM Ballooned (GB)"          = [MATH]::ROUND((($_ | Get-Stat -Stat mem.vmmemctl.average -Realtime | Measure-Object -Property Value -Average).Average/1024)/1024,2)
-        $vm_entry."RAM Swapped (GB)"            = [MATH]::ROUND((($_ | Get-Stat -Stat mem.swapped.average -Realtime | Measure-Object -Property Value -Average).Average/1024)/1024,2)
-        $vm_entry."Disk Write Latency (ms)"     = [MATH]::ROUND((Get-Stat -Entity (Get-VM $_) -Stat virtualDisk.totalWriteLatency.average -Realtime | Measure-Object -Property Value -Average).Average,2)
-        $vm_entry."Disk Read Latency (ms)"      = [MATH]::ROUND((Get-Stat -Entity (Get-VM $_) -Stat virtualDisk.totalReadLatency.average -Realtime | Measure-Object -Property Value -Average).Average,2)
-        $vm_entry."Datastore Read IOPS"         = [MATH]::ROUND((Get-Stat -Entity (Get-VM $_) -Stat virtualDisk.numberReadAveraged.average -Realtime | Measure-Object -Property Value -Average).Average,2)
-        $vm_entry."Datastore Write IOPS"        = [MATH]::ROUND((Get-Stat -Entity (Get-VM $_) -Stat virtualDisk.numberWriteAveraged.average -Realtime | Measure-Object -Property Value -Average).Average,2)
+        $vm_entry."Cluster RAM Overbookin"      = $global:report_cluster | Where-Object { $_.Cluster -match $vm_entry.Cluster } | Select-Object -ExpandProperty "RAM Overcommit"
+        $vm_entry."RAM Consumed (GB)"           = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'mem.consumed.average') } | Measure-Object -Property Value -Average).Average/1024)/1024,2)
+        $vm_entry."RAM Active (GB)"             = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'mem.active.average') } | Measure-Object -Property Value -Average).Average/1024)/1024,2)
+        $vm_entry."RAM Ballooned (GB)"          = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'mem.vmmemctl.average') } | Measure-Object -Property Value -Average).Average/1024)/1024,2)
+        $vm_entry."RAM Swapped (GB)"            = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'mem.swapped.average') } | Measure-Object -Property Value -Average).Average/1024)/1024,2)
+        $vm_entry."Disk Write Latency (ms)"     = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.totalWriteLatency.average') } | Measure-Object -Property Value -Average).Average,2)
+        $vm_entry."Disk Read Latency (ms)"      = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.totalReadLatency.average') } | Measure-Object -Property Value -Average).Average,2)
+        $vm_entry."Disk Read IOPS"              = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.numberReadAveraged.average') } | Measure-Object -Property Value -Average).Average,2)
+        $vm_entry."Disk Write IOPS"             = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.numberWriteAveraged.average') } | Measure-Object -Property Value -Average).Average,2)
+        $vm_entry."Disk Read Throughput (MB/s)" = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.read.average') } | Measure-Object -Property Value -Average).Average/1024),2)
+        $vm_entry."Disk Write Throughput (MB/s)"= [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.write.average') } | Measure-Object -Property Value -Average).Average/1024),2)
         
         $global:report_vm   += $vm_entry
         $end_time = Get-Date
@@ -135,8 +151,14 @@ function get_vm_data
     Write-Progress -Activity "Daten aller VMs werden gesammelt" -Completed
 }   
 
+$start_script   = Get-Date
 get_variable
 get_cluster_data
 get_vm_data
 # $global:report_cluster | Out-GridView
 $global:report_vm | Out-GridView
+$global:report_vm | Export-Csv -Path "$global:path_export\VM_Performance_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
+
+$end_script     = Get-Date
+$runtime_script = New-TimeSpan -Start $start_script -End $end_script
+Write-Host "Script Laufzeit: $($runtime_script.TotalSeconds) Sekunden" -ForegroundColor Green
