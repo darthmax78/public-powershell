@@ -35,7 +35,6 @@
     VMware PowerCLI Modul
     Verbindung zu einem vCenter Server
     Powershell 7+
-
 #>
 Clear-Host
 
@@ -116,16 +115,16 @@ function get_vm_data
         $vm_host            = $_.VMHost
         $vm_stats           = $_ | Get-Stat -Stat cpu.ready.summation, cpu.costop.summation, mem.consumed.average, mem.active.average, mem.vmmemctl.average, mem.swapped.average, virtualDisk.totalWriteLatency.average, virtualDisk.totalReadLatency.average, virtualDisk.numberReadAveraged.average, virtualDisk.numberWriteAveraged.average, virtualDisk.read.average, virtualDisk.write.average -Realtime
 
-        $vm_entry.Name                  = $_.Name
-        $vm_entry."Guest OS"            = $_.Guest.OSFullName
-        $vm_entry."Created"             = $_.CreateDate
-        $vm_entry.Cluster               = $vm_host.Parent
-        $vm_entry.Host                  = $vm_host
-        $vm_entry.PowerState            = $_.PowerState
-        $vm_entry.NumCPU                = $_.NumCPU
-        $vm_entry.MemoryGB              = $_.MemoryGB
-        $vm_entry.ProvisionedSpaceGB    = [MATH]::ROUND($_.ProvisionedSpaceGB,2)
-        $vm_entry.UsedSpaceGB           = [MATH]::ROUND($_.UsedSpaceGB,2)
+        $vm_entry.Name                          = $_.Name
+        $vm_entry."Guest OS"                    = $_.Guest.OSFullName
+        $vm_entry."Created"                     = $_.CreateDate
+        $vm_entry.Cluster                       = $vm_host.Parent
+        $vm_entry.Host                          = $vm_host
+        $vm_entry.PowerState                    = $_.PowerState
+        $vm_entry.NumCPU                        = $_.NumCPU
+        $vm_entry.MemoryGB                      = $_.MemoryGB
+        $vm_entry.ProvisionedSpaceGB            = [MATH]::ROUND($_.ProvisionedSpaceGB,2)
+        $vm_entry.UsedSpaceGB                   = [MATH]::ROUND($_.UsedSpaceGB,2)
 
         $vm_entry."CPU Ready (%)"               = [INT64]($vm_stats | Where-Object { ($_.MetricId -like 'cpu.ready.summation') -and ($_.Instance -like '') } | Measure-Object -Property Value -Sum).Sum
         $vm_entry."CPU Ready (%)"               = ($vm_entry."CPU Ready (%)"/$vm_entry.NumCPU/(20*1000))*100
@@ -155,8 +154,7 @@ $start_script   = Get-Date
 get_variable
 get_cluster_data
 get_vm_data
-# $global:report_cluster | Out-GridView
-$global:report_vm | Out-GridView
+$global:report_cluster | Export-Csv -Path "$global:path_export\Cluster_Report_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
 $global:report_vm | Export-Csv -Path "$global:path_export\VM_Performance_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
 
 $end_script     = Get-Date
