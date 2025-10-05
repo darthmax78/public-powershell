@@ -3,6 +3,10 @@
     Dieses Programm dient zur Erfassung von Performance Daten aller virtuellen Maschinen einer VMware Umgebung.
 .DESCRIPTION
     In erster Linie dient dieses Programm dazu, damit Performance Daten für Parameter von CPU (Ready Time; Wait-States; Usage), RAM (Consumed; Active; Ballooned; Swapped) und Datenspeicher (I/O-Latenz; IOPS; Durchsatz) gesammelt werden können.
+
+.SYNTAX
+    vm_performance.ps1 [-Export <STRING>] [-GridView] [-No_Export]
+
 .NOTES
     v. 0.1  Die Anmelde Funktion wird implementiert, sowie die Abfrage aller VMs und Cluster.
             Alle VMs werden in einer Variablen gesammelt
@@ -20,13 +24,16 @@
             Disk Latenz eingepflegt
             Datastore IOPS sind eingepflegt
             CPU Werte sind eingepflegt
-    
+
     v. 0.4  Test ob die Auswertung mittels Abfrage Optimierung beschleunigt werden kann
             Korrektur der Abfrage aufgrund der Sammlung im Bucket
             Laufzeit Auswertung hinzugefügt
             Zeitstempel und globale Variable für den Export des Reports hinzugefügt
             Create Date der VM hinzugefügt
             Disk Durchsatz hinzugefügt
+
+    v. 0.4.1    Kleine Korrektur bei der Durchschnittsberechnung der Disken
+    v. 0.4.2    Einbau dreier Switches bzw. Parameter für die Powershell Ausführung: -Export,No_Export und -GridView 
 
 .AUTHOR
     Magnus Witzik
@@ -36,11 +43,22 @@
     Verbindung zu einem vCenter Server
     Powershell 7+
 #>
+
+param
+(
+        [STRING]$Export,
+        [SWITCH]$GridView,
+        [SWITCH]$No_Export
+)
+
 Clear-Host
 
 function get_variable
 {
-    # Variable für den Export des Reports
+    # Variable für den Export des Reports, wenn kein Pfad mitgeliefert wird. Sozusagen eine Art Default Pfad
+    if ( [STRING]::IsNullOrEmpty($Export) ) { $global:path_export = "W:\Reports\VM_Performance" }
+    else { $global:path_export = $Export }
+
     $global:path_export     = "W:\Reports\VM_Performance"
     $global:date_export     = Get-Date -Format "yyyy-MM-dd_HH-mm"
 
@@ -68,12 +86,12 @@ function get_cluster_data
     $global:all_clusters | Foreach-Object `
     {
         $counter++
-        $percent            = (($counter) / $global:all_clusters.Count * 100)
-        $start_time         = Get-Date
+        $percent                        = (($counter) / $global:all_clusters.Count * 100)
+        $start_time                     = Get-Date
         Write-Progress -Activity "Cluster Daten werden gesammelt" -Status "Cluster: $($_.Name) $percent%" -PercentComplete $percent -SecondsRemaining $estimated_total
-        $cluster_vm         = $_ | Get-VM | Where-Object { $_.Name -notmatch "\AvCLS" } | Sort-Object Name
-        $cluster_host       = $_ | Get-VMHost | Where-Object { $_.ConnectionState -eq "Connected" } | Sort-Object Name
-        $cluster_entry      = "" | Select-Object Cluster, VMs, "Physical CPU", "Virtual CPU", "CPU Overcommit", "Geo-Redundancy", "Physical RAM (GB)", "Virtual RAM (GB)", "RAM Overcommit"
+        $cluster_vm                     = $_ | Get-VM | Where-Object { $_.Name -notmatch "\AvCLS" } | Sort-Object Name
+        $cluster_host                   = $_ | Get-VMHost | Where-Object { $_.ConnectionState -eq "Connected" } | Sort-Object Name
+        $cluster_entry                  = "" | Select-Object Cluster, VMs, "Physical CPU", "Virtual CPU", "CPU Overcommit", "Geo-Redundancy", "Physical RAM (GB)", "Virtual RAM (GB)", "RAM Overcommit"
         $cluster_entry.Cluster          = $_.Name
         $cluster_entry.VMs              = $cluster_vm.Count
         if ( $_ | Get-TagAssignment | Where-Object { $_.Tag -match "Geo-Redundant"}) { $cluster_entry."Geo-Redundancy" = "Ja" } else { $cluster_entry."Geo-Redundancy" = "Nein" }
@@ -139,8 +157,8 @@ function get_vm_data
         $vm_entry."Disk Read Latency (ms)"      = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.totalReadLatency.average') } | Measure-Object -Property Value -Average).Average,2)
         $vm_entry."Disk Read IOPS"              = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.numberReadAveraged.average') } | Measure-Object -Property Value -Average).Average,2)
         $vm_entry."Disk Write IOPS"             = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.numberWriteAveraged.average') } | Measure-Object -Property Value -Average).Average,2)
-        $vm_entry."Disk Read Throughput (MB/s)" = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.read.average') } | Measure-Object -Property Value -Average).Average/1024),2)
-        $vm_entry."Disk Write Throughput (MB/s)"= [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.write.average') } | Measure-Object -Property Value -Average).Average/1024),2)
+        $vm_entry."Disk Read Throughput (MB/s)" = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.read.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
+        $vm_entry."Disk Write Throughput (MB/s)"= [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.write.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
         
         $global:report_vm   += $vm_entry
         $end_time = Get-Date
@@ -154,8 +172,16 @@ $start_script   = Get-Date
 get_variable
 get_cluster_data
 get_vm_data
-$global:report_cluster | Export-Csv -Path "$global:path_export\Cluster_Report_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
-$global:report_vm | Export-Csv -Path "$global:path_export\VM_Performance_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
+
+if ($No_Export -eq $true) { Write-Host "Kein Export der Daten gewünscht." -ForegroundColor Yellow }
+else
+{
+    $global:report_cluster | Export-Csv -Path "$global:path_export\Cluster_Report_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
+    $global:report_vm | Export-Csv -Path "$global:path_export\VM_Performance_$global:date_export.csv" -NoTypeInformation -Delimiter ";" -Encoding utf8BOM
+}
+
+if ($GridView -eq $true) { $global:report_vm | Out-GridView -Title "VM Performance Report" }
+else { }
 
 $end_script     = Get-Date
 $runtime_script = New-TimeSpan -Start $start_script -End $end_script
