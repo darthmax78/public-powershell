@@ -33,7 +33,9 @@
             Disk Durchsatz hinzugefügt
 
     v. 0.4.1    Kleine Korrektur bei der Durchschnittsberechnung der Disken
-    v. 0.4.2    Einbau dreier Switches bzw. Parameter für die Powershell Ausführung: -Export,No_Export und -GridView 
+    v. 0.4.2    Einbau dreier Switches bzw. Parameter für die Powershell Ausführung: -Export,No_Export und -GridView
+    
+    v. 0.5      Erweiterung des Reports um die Netzwerkauslastung der VM
 
 .AUTHOR
     Magnus Witzik
@@ -129,9 +131,9 @@ function get_vm_data
         $percent            = (($counter) / $global:all_vms.Count * 100)
         $start_time         = Get-Date
         Write-Progress -Activity "Daten aller VMs werden gesammelt" -Status "VM: $($_.Name) $percent%" -PercentComplete $percent -SecondsRemaining $estimated_total
-        $vm_entry           = "" | Select-Object Name, "Guest OS", "Created", Cluster, Host, PowerState, NumCPU, MemoryGB, ProvisionedSpaceGB, UsedSpaceGB, "CPU Ready (%)", "CPU Co-Stop (ms)", "Cluster CPU Overbookin", "RAM Consumed (GB)", "RAM Active (GB)", "RAM Ballooned (GB)", "RAM Swapped (GB)", "Cluster RAM Overbookin", "Disk Write Latency (ms)", "Disk Read Latency (ms)", "Disk Read IOPS", "Disk Write IOPS", "Disk Read Throughput (MB/s)", "Disk Write Throughput (MB/s)"
+        $vm_entry           = "" | Select-Object Name, "Guest OS", "Created", Cluster, Host, PowerState, NumCPU, MemoryGB, ProvisionedSpaceGB, UsedSpaceGB, "CPU Ready (%)", "CPU Co-Stop (ms)", "Cluster CPU Overbookin", "RAM Consumed (GB)", "RAM Active (GB)", "RAM Ballooned (GB)", "RAM Swapped (GB)", "Cluster RAM Overbookin", "Disk Write Latency (ms)", "Disk Read Latency (ms)", "Disk Read IOPS", "Disk Write IOPS", "Disk Read Throughput (MB/s)", "Disk Write Throughput (MB/s)", "Network Read (MB/s)", "Network Write (MB/s)"
         $vm_host            = $_.VMHost
-        $vm_stats           = $_ | Get-Stat -Stat cpu.ready.summation, cpu.costop.summation, mem.consumed.average, mem.active.average, mem.vmmemctl.average, mem.swapped.average, virtualDisk.totalWriteLatency.average, virtualDisk.totalReadLatency.average, virtualDisk.numberReadAveraged.average, virtualDisk.numberWriteAveraged.average, virtualDisk.read.average, virtualDisk.write.average -Realtime
+        $vm_stats           = $_ | Get-Stat -Stat cpu.ready.summation, cpu.costop.summation, mem.consumed.average, mem.active.average, mem.vmmemctl.average, mem.swapped.average, virtualDisk.totalWriteLatency.average, virtualDisk.totalReadLatency.average, virtualDisk.numberReadAveraged.average, virtualDisk.numberWriteAveraged.average, virtualDisk.read.average, virtualDisk.write.average, net.received.average, net.transmitted.average -Realtime
 
         $vm_entry.Name                          = $_.Name
         $vm_entry."Guest OS"                    = $_.Guest.OSFullName
@@ -159,6 +161,8 @@ function get_vm_data
         $vm_entry."Disk Write IOPS"             = [MATH]::ROUND(($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.numberWriteAveraged.average') } | Measure-Object -Property Value -Average).Average,2)
         $vm_entry."Disk Read Throughput (MB/s)" = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.read.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
         $vm_entry."Disk Write Throughput (MB/s)"= [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'virtualDisk.write.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
+        $vm_entry."Network Read (MB/s)"         = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'net.received.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
+        $vm_entry."Network Write (MB/s)"        = [MATH]::ROUND((($vm_stats | Where-Object { ($_.MetricId -like 'net.transmitted.average') -and ($_.Instance -like '') } | Measure-Object -Property Value -Average).Average/1024),2)
         
         $global:report_vm   += $vm_entry
         $end_time = Get-Date
